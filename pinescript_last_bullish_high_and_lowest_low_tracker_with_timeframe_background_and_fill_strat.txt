@@ -1,0 +1,359 @@
+//@version=5
+strategy("Last Bullish High & Lowest Low Tracker with Timeframe Background and Fill", overlay=true)
+
+// Input for selecting the timeframe
+length = input(64)
+source = input.source(close)
+ema = ta.ema(source,length)
+
+plot(ema,linewidth = 2)
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+lb = input.int(5, title='Left Bars', minval=1)
+rb = input.int(8, title='Right Bars', minval=1)
+showsupres = input.bool(true, title='Support/Resistance', inline='srcol')
+supcol = input.color(color.lime, title='', inline='srcol')
+rescol = input.color(color.red, title='', inline='srcol')
+srlinestyle = input.string(line.style_solid, title='Line Style/Width', options=[line.style_solid, line.style_dashed, line.style_dotted], inline='style')
+srlinewidth = input.int(2, title='', minval=1, maxval=5, inline='style')
+changebarcol = input.bool(true, title='Change Bar Color', inline='bcol')
+bcolup = input.color(color.blue, title='', inline='bcol')
+bcoldn = input.color(color.black, title='', inline='bcol')
+
+ph = ta.pivothigh(lb, rb)
+pl = ta.pivotlow(lb, rb)
+
+iff_1 = pl ? -1 : na  // Trend direction
+hl = ph ? 1 : iff_1
+iff_2 = pl ? pl : na  // similar to zigzag but may have multiple highs/lows
+zz = ph ? ph : iff_2
+valuewhen_1 = ta.valuewhen(hl, hl, 1)
+valuewhen_2 = ta.valuewhen(zz, zz, 1)
+zz := pl and hl == -1 and valuewhen_1 == -1 and pl > valuewhen_2 ? na : zz
+valuewhen_3 = ta.valuewhen(hl, hl, 1)
+valuewhen_4 = ta.valuewhen(zz, zz, 1)
+zz := ph and hl == 1 and valuewhen_3 == 1 and ph < valuewhen_4 ? na : zz
+
+valuewhen_5 = ta.valuewhen(hl, hl, 1)
+valuewhen_6 = ta.valuewhen(zz, zz, 1)
+hl := hl == -1 and valuewhen_5 == 1 and zz > valuewhen_6 ? na : hl
+valuewhen_7 = ta.valuewhen(hl, hl, 1)
+valuewhen_8 = ta.valuewhen(zz, zz, 1)
+hl := hl == 1 and valuewhen_7 == -1 and zz < valuewhen_8 ? na : hl
+zz := na(hl) ? na : zz
+
+findprevious() =>  // finds previous three points (b, c, d, e)
+    ehl = hl == 1 ? -1 : 1
+    loc1 = 0.0
+    loc2 = 0.0
+    loc3 = 0.0
+    loc4 = 0.0
+    xx = 0
+    for x = 1 to 1000 by 1
+        if hl[x] == ehl and not na(zz[x])
+            loc1 := zz[x]
+            xx := x + 1
+            break
+    ehl := hl
+    for x = xx to 1000 by 1
+        if hl[x] == ehl and not na(zz[x])
+            loc2 := zz[x]
+            xx := x + 1
+            break
+    ehl := hl == 1 ? -1 : 1
+    for x = xx to 1000 by 1
+        if hl[x] == ehl and not na(zz[x])
+            loc3 := zz[x]
+            xx := x + 1
+            break
+    ehl := hl
+    for x = xx to 1000 by 1
+        if hl[x] == ehl and not na(zz[x])
+            loc4 := zz[x]
+            break
+    [loc1, loc2, loc3, loc4]
+
+float a = na
+float b = na
+float c = na
+float d = na
+float e = na
+if not na(hl)
+    [loc1, loc2, loc3, loc4] = findprevious()
+    a := zz
+    b := loc1
+    c := loc2
+    d := loc3
+    e := loc4
+    e
+
+_hh = zz and a > b and a > c and c > b and c > d
+_ll = zz and a < b and a < c and c < b and c < d
+_hl = zz and (a >= c and b > c and b > d and d > c and d > e or a < b and a > c and b < d)
+_lh = zz and (a <= c and b < c and b < d and d < c and d < e or a > b and a < c and b > d)
+
+// plotshape(_hl, text='HL', title='Higher Low', style=shape.labelup, color=color.new(color.lime, 0), textcolor=color.new(color.black, 0), location=location.belowbar)
+// plotshape(_hh, text='HH', title='Higher High', style=shape.labeldown, color=color.new(color.lime, 0), textcolor=color.new(color.black, 0), location=location.abovebar)
+// plotshape(_ll, text='LL', title='Lower Low', style=shape.labelup, color=color.new(color.red, 0), textcolor=color.new(color.white, 0), location=location.belowbar)
+// plotshape(_lh, text='LH', title='Lower High', style=shape.labeldown, color=color.new(color.red, 0), textcolor=color.new(color.white, 0), location=location.abovebar)
+
+long_trades = false
+long_trades := long_trades[1]
+
+short_trades = false
+short_trades := short_trades[1]
+
+
+if _hh
+    long_trades := true
+    short_trades := false
+
+if _ll
+    short_trades := true
+    long_trades := false
+
+
+if _lh or _hl
+    long_trades := false
+    short_trades := false
+
+
+float res = na
+float sup = na
+res := _lh ? zz : res[1]
+sup := _hl ? zz : sup[1]
+
+int trend = na
+iff_3 = close < sup ? -1 : nz(trend[1])
+trend := close > res ? 1 : iff_3
+
+res := trend == 1 and _hh or trend == -1 and _lh ? zz : res
+sup := trend == 1 and _hl or trend == -1 and _ll ? zz : sup
+rechange = res != res[1]
+suchange = sup != sup[1]
+
+var line resline = na
+var line supline = na
+if showsupres
+    if rechange
+        line.set_x2(resline, bar_index)
+        line.set_extend(resline, extend=extend.none)
+        resline := line.new(x1=bar_index - rb, y1=res, x2=bar_index, y2=res, color=rescol, extend=extend.right, style=srlinestyle, width=srlinewidth)
+        resline
+
+    if suchange
+        line.set_x2(supline, bar_index)
+        line.set_extend(supline, extend=extend.none)
+        supline := line.new(x1=bar_index - rb, y1=sup, x2=bar_index, y2=sup, color=supcol, extend=extend.right, style=srlinestyle, width=srlinewidth)
+        supline
+
+iff_4 = trend == 1 ? bcolup : bcoldn
+barcolor(color=changebarcol ? iff_4 : na)
+
+
+// Inputs for resistance and support levels
+resistance = sup //input.float(10000, "Resistance Level")
+support = res//input.float(9000, "Support Level")
+
+
+if trend == -1
+    resistance := res
+    support := sup
+
+// Inputs for resistance and support levels
+
+// Calculate the range (renamed to rangex)
+rangex = resistance - support
+
+// Fibonacci levels
+fib_0 = support
+fib_236 = support + rangex * 0.236
+fib_382 = support + rangex * 0.382
+fib_500 = support + rangex * 0.5
+fib_618 = support + rangex * 0.618
+fib_786 = support + rangex * 0.786
+fib_1 = resistance
+
+//Plot Fibonacci levels with different colors
+// plot(fib_0, title="Fib 0%", color=color.green, linewidth=2)
+// plot(fib_236, title="Fib 23.6%", color=color.blue, linewidth=2)
+// plot(fib_382, title="Fib 38.2%", color=color.teal, linewidth=2)
+// plot(fib_500, title="Fib 50%", color=color.purple, linewidth=2)
+// plot(fib_618, title="Fib 61.8%", color=color.orange, linewidth=2)
+// plot(fib_786, title="Fib 78.6%", color=color.red, linewidth=2)
+// plot(fib_1, title="Fib 100%", color=color.maroon, linewidth=2)
+
+// Define line and label storage variables
+var line fib_line_0 = na
+var line fib_line_236 = na
+var line fib_line_382 = na
+var line fib_line_500 = na
+var line fib_line_618 = na
+var line fib_line_786 = na
+var line fib_line_1 = na
+
+var label fib_label_0 = na
+var label fib_label_236 = na
+var label fib_label_382 = na
+var label fib_label_500 = na
+var label fib_label_618 = na
+var label fib_label_786 = na
+var label fib_label_1 = na
+
+// Delete previous lines and labels
+if (na(fib_line_0) == false)
+    line.delete(fib_line_0)
+    line.delete(fib_line_236)
+    line.delete(fib_line_382)
+    line.delete(fib_line_500)
+    line.delete(fib_line_618)
+    line.delete(fib_line_786)
+    line.delete(fib_line_1)
+
+    label.delete(fib_label_0)
+    label.delete(fib_label_236)
+    label.delete(fib_label_382)
+    label.delete(fib_label_500)
+    label.delete(fib_label_618)
+    label.delete(fib_label_786)
+    label.delete(fib_label_1)
+
+// Draw new lines for Fibonacci levels
+fib_line_0 := line.new(x1=bar_index - 10, y1=fib_0, x2=bar_index + 10, y2=fib_0, color=color.red, width=2)
+fib_line_236 := line.new(x1=bar_index - 10, y1=fib_236, x2=bar_index + 10, y2=fib_236, color=color.orange, width=2)
+fib_line_382 := line.new(x1=bar_index - 10, y1=fib_382, x2=bar_index + 10, y2=fib_382, color=color.yellow, width=2)
+fib_line_500 := line.new(x1=bar_index - 10, y1=fib_500, x2=bar_index + 10, y2=fib_500, color=color.green, width=2)
+fib_line_618 := line.new(x1=bar_index - 10, y1=fib_618, x2=bar_index + 10, y2=fib_618, color=color.blue, width=2)
+fib_line_786 := line.new(x1=bar_index - 10, y1=fib_786, x2=bar_index + 10, y2=fib_786, color=color.purple, width=2)
+fib_line_1 := line.new(x1=bar_index - 10, y1=fib_1, x2=bar_index + 10, y2=fib_1, color=color.red, width=2)
+
+// Create labels for each Fibonacci level on the left side
+fib_label_0 := label.new(x=bar_index + 10, y=fib_0, text="0% (Support)", color=color.red, textcolor=color.white, size=size.normal, style=label.style_label_left)
+fib_label_236 := label.new(x=bar_index + 10, y=fib_236, text="0.236", color=color.orange, textcolor=color.white, size=size.normal, style=label.style_label_left)
+fib_label_382 := label.new(x=bar_index + 10, y=fib_382, text="0.382", color=color.yellow, textcolor=color.black, size=size.normal, style=label.style_label_left)
+fib_label_500 := label.new(x=bar_index + 10, y=fib_500, text="0.5", color=color.green, textcolor=color.white, size=size.normal, style=label.style_label_left)
+fib_label_618 := label.new(x=bar_index + 10, y=fib_618, text="0.618", color=color.blue, textcolor=color.white, size=size.normal, style=label.style_label_left)
+fib_label_786 := label.new(x=bar_index + 10, y=fib_786, text="0.786", color=color.purple, textcolor=color.white, size=size.normal, style=label.style_label_left)
+fib_label_1 := label.new(x=bar_index + 10, y=fib_1, text="100% (Resistance)", color=color.red, textcolor=color.white, size=size.normal, style=label.style_label_left)
+
+
+buy = ((close > fib_786 and open < fib_786 and  trend == 1) or trend == 1 and trend[1] == -1) and close > ema
+sell = ((close < fib_786 and open > fib_786 and trend == -1)  or trend == -1 and trend[1] == 1) and close < ema
+
+
+Stop = input(65.0,title = "StopLoss")
+ 
+ProfitPerc = 999999999999//input(defval = 470.0,title = "Profit")
+ 
+long_short = 0
+long_last = (buy) and (nz(long_short[1]) == 0 or nz(long_short[1]) == -1)
+short_last = (sell) and (nz(long_short[1]) == 0 or nz(long_short[1]) == 1)
+long_short := long_last ? 1 : short_last ? -1 : long_short[1]
+ 
+long_entered = false
+long_entered := long_entered[1]
+ 
+short_entered = false
+short_entered := short_entered[1]
+ 
+ 
+longPrice = ta.valuewhen(long_last, close, 0)
+shortPrice = ta.valuewhen(short_last, close, 0)
+
+risk = 1//input(1.0,"Risk Reward")
+ 
+ 
+longStop = sup //longPrice  - Stop
+shortStop = res //  shortPrice + Stop
+longTake = (longPrice + ProfitPerc) 
+shortTake =  (shortPrice - ProfitPerc )
+ 
+plot(long_short==1  ? longStop : na, style=plot.style_linebr, color=color.red, linewidth=1, title="Long Fixed SL")
+plot(long_short==-1 ? shortStop : na, style=plot.style_linebr, color=color.red, linewidth=1, title="Short Fixed SL")
+// plot(long_short==1  ? longTake : na, style=plot.style_linebr, color=color.navy, linewidth=1, title="Long Fixed TP")
+// plot(long_short==-1 ? shortTake : na, style=plot.style_linebr, color=color.navy, linewidth=1, title="Short Fixed TP")
+ 
+ 
+longBar1 = ta.barssince(long_last)
+longBar2 = longBar1 >= 1 ? true : false
+shortBar1 = ta.barssince(short_last)
+shortBar2 = shortBar1 >= 1 ? true : false
+ 
+longSLhit = long_short==1 and longBar2 and low < longStop
+ 
+// if(long_entered and  close < res and open > res)
+//     longSLhit := true
+ 
+plotshape(longSLhit and not (sell and  not(short_entered)  and (long_entered)), style=shape.labelup, location=location.belowbar, color=color.gray, size=size.tiny, title="Stop Loss", text="Long SL", textcolor=color.white)
+shortSLhit = long_short==-1 and shortBar2 and high > shortStop
+ 
+ 
+// if(short_entered and close > sup and open < sup)
+//     shortSLhit := true
+ 
+plotshape(shortSLhit and not (buy and  not(long_entered)  and (short_entered)), style=shape.labeldown, location=location.abovebar, color=color.gray, size=size.tiny, title="Stop Loss", text="Short SL", textcolor=color.white)
+ 
+ 
+longTPhit = long_short==1 and longBar2 and high > longTake
+plotshape(longTPhit, style=shape.labeldown, location=location.abovebar, color=color.navy, size=size.tiny, title="Target", text="Long TP", textcolor=color.white)
+shortTPhit = long_short==-1 and shortBar2 and low < shortTake
+plotshape(shortTPhit, style=shape.labelup, location=location.belowbar, color=color.navy, size=size.tiny, title="Target", text="Short TP", textcolor=color.white)
+ 
+long_short := (long_short==1 or long_short==0) and longBar2 and (longSLhit or longTPhit) ? 0 : (long_short==-1 or long_short==0) and shortBar2 and (shortSLhit or shortTPhit) ? 0 : long_short
+ 
+// plotshape(buy and not(long_entered) and (short_entered), color = color.green , style = shape.labelup , text = "FA Buy" , textcolor = color.white , location = location.belowbar)
+// plotshape(sell and not(short_entered)  and (long_entered), color = color.red , style = shape.labeldown , text = "FA Sell" , textcolor = color.white , location = location.abovebar)
+ 
+// alertcondition(condition=buy and  not(long_entered)  and (short_entered), title="Fully Algo Buy")
+// alertcondition(condition=sell and  not(short_entered)  and (long_entered), title="Fully Algo sell")
+ 
+ 
+// if(shortSLhit or longSLhit or (long_entered[1] and sell) or (short_entered[1] and buy ))
+
+
+if longSLhit or shortSLhit
+    strategy.close_all()
+//     qn := qn*2
+ 
+// if(longTPhit or shortTPhit or qn > rev)
+//     qn := 1
+
+if(buy) //and (signals == 'Only Buy')
+    strategy.entry("buy",strategy.long)
+
+strategy.exit("Stop","buy",limit = longTake,stop = longStop) 
+
+if(sell) //and (signals == 'Only Sell')
+    strategy.entry("sell",strategy.short)
+    
+strategy.exit("Stop","sell",limit = shortTake,stop = shortStop) 
+ 
+ 
+plotshape(buy and not(long_entered) , color = color.green , style = shape.labelup , text = "Buy" , textcolor = color.white , location = location.belowbar)
+plotshape(sell and  not(short_entered)  , color = color.red , style = shape.labeldown , text = "Sell" , textcolor = color.white , location = location.abovebar)
+ 
+ 
+ 
+alertcondition(condition=buy  and not(long_entered), title="Buy")
+alertcondition(condition=sell  and not(short_entered), title="Sell")
+ 
+if(long_last)
+    long_entered := true
+    short_entered := false
+if(short_last)
+    short_entered := true
+    long_entered := false
+ 
+alertcondition(condition= longSLhit and not (sell and  not(short_entered)  and (long_entered)), title="Long SL")
+alertcondition(condition= shortSLhit and not (buy and  not(long_entered)  and (short_entered)), title="Short SL")
+ 
+alertcondition(condition=longTPhit, title="Long TP")
+alertcondition(condition=shortTPhit, title="Short TP")
+ 
+if(longSLhit or longTPhit )
+    long_entered := false
+ 
+if(shortSLhit or shortTPhit)
+    short_entered := false
